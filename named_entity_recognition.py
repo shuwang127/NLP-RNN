@@ -35,56 +35,81 @@ def main():
     sys.stdout = Logger()
     print("-- AIT726 Homework 3 from Julia Jeng, Shu Wang, and Arman Anwar --")
 
-    vocab, sentences = ReadData()
-    print(vocab)
-    #print(sentences)
+    ReadData()
 
     return
 
 def ReadData():
-    def lower_repl(match):
-        return match.group().lower()
-
-    def lowercase_text(txt):
-        txt = re.sub('([A-Z]+[a-z]+)', lower_repl, txt)  # lowercase words that start with captial
-        return txt
+    # lower case capitalized words.
+    def LowerCase(data):
+        def LowerFunc(matched):
+            return matched.group(1).lower()
+        pattern = r'([A-Z]+[a-z]+)'
+        data = re.sub(pattern, LowerFunc, data)
+        return data
 
     vocab = defaultdict(list)
-    doc = []
-    with open(dataPath + '/train.txt') as f:
-        for word in f.read().splitlines():
-            a = word.split(" ")
-            if len(a) > 1:
-                vocab[lowercase_text(a[0])].append(a[3])  # ad to vocab and to doc as dictionary with tag
-                doc.append([lowercase_text(a[0]), a[3]])
-            else:
-                doc.append(a[0])
-    doc.insert(0, '')
+    dataTrain = []
+    sentence = []
+    # read text from train file.
+    file = open(dataPath + '/train.txt').read()
+    for word in file.splitlines():
+        seg = word.split(' ')
+        if len(seg) <= 1:
+            if (sentence):
+                dataTrain.append(sentence)
+            sentence = []
+        else:
+            if seg[0] != '-DOCSTART-':
+                sentence.append([LowerCase(seg[0]), seg[-1]])
+                vocab[LowerCase(seg[0])].append(seg[-1])
+    # get the max length of dataTrain.
+    maxlenTrain = max([len(sentence) for sentence in dataTrain])
 
-    # retaining the unique tags for each vocab word
-    for k, v in vocab.items():
-        vocab[k] = (list(set(v)))
+    dataValid = []
+    sentence = []
+    # read text from valid file.
+    file = open(dataPath + '/valid.txt').read()
+    for word in file.splitlines():
+        seg = word.split(' ')
+        if len(seg) <= 1:
+            if (sentence):
+                dataValid.append(sentence)
+            sentence = []
+        else:
+            if seg[0] != '-DOCSTART-':
+                sentence.append([LowerCase(seg[0]), seg[-1]])
+                vocab[LowerCase(seg[0])].append(seg[-1])
+    # get the max length of dataValid.
+    maxlenValid = max([len(sentence) for sentence in dataValid])
 
-    # getting the indices of the end of each sentence
-    sentence_ends = []
-    for i, word in enumerate(doc):
-        if not word:
-            sentence_ends.append(i)
-    sentence_ends.append(len(doc) - 1)
-    # creating a list of all the sentences
-    sentences = []
-    for i in range(len(sentence_ends) - 1):
-        sentences.append(doc[sentence_ends[i] + 1:sentence_ends[i + 1]])
+    dataTest = []
+    sentence = []
+    # read text from test file.
+    file = open(dataPath + '/test.txt').read()
+    for word in file.splitlines():
+        seg = word.split(' ')
+        if len(seg) <= 1:
+            if (sentence):
+                dataTest.append(sentence)
+            sentence = []
+        else:
+            if seg[0] != '-DOCSTART-':
+                sentence.append([LowerCase(seg[0]), seg[-1]])
+                vocab[LowerCase(seg[0])].append(seg[-1])
+    # get the max length of dataTest.
+    maxlenTest = max([len(sentence) for sentence in dataTest])
 
-    # getting the length of the longest sentence
-    max_sent_len = len(max(sentences, key=len))
+    # the maximum 
+    maxlen = max(maxlenTrain, maxlenValid, maxlenTest)
 
-    ## padding all of the sentences to make them length 113
-    for sentence in sentences:
-        sentence.extend(['0', '<pad>'] for i in range(max_sent_len - len(sentence)))
-    # This is the code to read the embeddings
-    vocab['0'] = '<pad>'
-    return vocab, sentences
+
+
+
+
+
+
+    return
 
 def GetVector():
     return
