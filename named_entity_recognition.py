@@ -256,9 +256,10 @@ def RNNTrain(dTrain, lTrain, dValid, lValid, preWeights, preTrain=True, Type='RN
 
     # build the model of recurrent neural network.
     preWeights = torch.from_numpy(preWeights)
-    model = RecurrentNeuralNetwork(preWeights, preTrain=True, Type='RNN', bidirect=False, hiddenSize=256)
+    model = RecurrentNeuralNetwork(preWeights, preTrain=preTrain, Type=Type, bidirect=bidirect, hiddenSize=hiddenSize)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
+    print('[Demo] --- RNNType: %s | HiddenNodes: %d | Bi-Direction: %s | Pre-Trained: %s ---' % (Type, hiddenSize, bidirect, preTrain))
     # optimizing with stochastic gradient descent.
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
     # seting loss function as mean squared error.
