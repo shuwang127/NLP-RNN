@@ -1,3 +1,26 @@
+'''
+  Author: Julia Jeng, Shu Wang, Arman Anwar
+  Brief: AIT 726 Homework 3
+  Usage:
+      Put file 'named_entity_recognition.py' and folder 'conll2003' in the same folder.
+      -named_entity_recognition.py
+      -conll2003
+        |---conlleval.py
+        |---test.py
+        |---train.py
+        |---valid.py
+      -temp
+        |---GoogleNews-vectors-negative300.bin
+  Command to run:
+      python named_entity_recognition.py
+  Description:
+      Build and train a recurrent neural network (RNN) with hidden vector size 256.
+      Loss function: Adam loss.
+      Embedding vector: 128-dimensional.
+      Learning rate: 0.0001.
+      Batch size: 256
+'''
+
 import sys
 import re
 import os
@@ -35,7 +58,7 @@ class Logger(object):
 
 def main():
     # initialize the log file.
-    sys.stdout = Logger()
+    sys.stdout = Logger('named_entity_recognition.txt')
     print("-- AIT726 Homework 3 from Julia Jeng, Shu Wang, and Arman Anwar --")
     # read data from files.
     dataTrain, dataValid, dataTest, vocab = ReadData()
@@ -57,6 +80,13 @@ def main():
     return
 
 def ReadData():
+    '''
+    Read train, valid, test data from files. And get vocabulary.
+    :param: none
+    :return: dataTrain - training data
+             dataValid - validation data.
+             dataTest - testing data.
+    '''
     # lower case capitalized words.
     def LowerCase(data):
         def LowerFunc(matched):
@@ -139,6 +169,12 @@ def ReadData():
     return dataTrain, dataValid, dataTest, vocab
 
 def GetDict(vocab):
+    '''
+    Get the word and vocabulary dictionary.
+    :param vocab: vocabulary
+    :return: wordDict - word dictionary
+             classDict - class dictionary
+    '''
     # get word and class dictionary.
     wordDict = {word: index for index, word in enumerate(vocab)}
     classDict = {'<pad>': 0, 'O': 1, 'B-ORG': 2, 'B-PER': 3, 'B-LOC': 4, 'B-MISC': 5, 'I-ORG': 6, 'I-PER': 7, 'I-LOC': 8, 'I-MISC': 9}
@@ -146,6 +182,14 @@ def GetDict(vocab):
     return wordDict, classDict
 
 def GetMapping(data, wordDict, classDict):
+    '''
+    Map the data into index-form vectors.
+    :param data: Input data.
+    :param wordDict: word dictionary
+    :param classDict: class dictionary
+    :return: data2index - index-form data
+             label2index - index-form label
+    '''
     # map data and label to index-form.
     data2index = []
     label2index = []
@@ -162,6 +206,11 @@ def GetMapping(data, wordDict, classDict):
     return np.array(data2index), np.array(label2index)
 
 def GetEmbedding(wordDict):
+    '''
+    Get the embedding vectors from files.
+    :param wordDict: word dictionary
+    :return: pre-trained weights.
+    '''
     # load preWeights.
     weightFile = 'preWeights.npy'
     if not os.path.exists(tempPath + '/' + weightFile):
@@ -206,6 +255,7 @@ def GetEmbedding(wordDict):
         print('[Info] Load pre-trained word2vec weights from %s/%s.' % (tempPath, weightFile))
     return preWeights
 
+# definition of recurrent neural network.
 class RecurrentNeuralNetwork(nn.Module):
     def __init__(self, preWeights, preTrain=True, Type='RNN', bidirect=False, hiddenSize=256):
         super(RecurrentNeuralNetwork, self).__init__()
@@ -238,6 +288,25 @@ class RecurrentNeuralNetwork(nn.Module):
         return yhats
 
 def DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, wordDict, classDict, preWeights, preTrain=True, Type='RNN', bidirect=False, hiddenSize=256, batchsize=256, learnRate=0.001):
+    '''
+    The demo program of RNN training, validation and testing.
+    :param dTrain: training data
+    :param lTrain: training label
+    :param dValid: validation data
+    :param lValid: validation label
+    :param dTest: testing data
+    :param lTest: testing label
+    :param wordDict: word dictionary
+    :param classDict: class dictionary
+    :param preWeights: pre-trained weights
+    :param preTrain: Enable pre-trained?
+    :param Type: RNN Type?
+    :param bidirect: Enable Bidirection?
+    :param hiddenSize: number of hidden nodes
+    :param batchsize: batch size
+    :param learnRate: learning rate
+    :return: model in pytorch
+    '''
     # tensor data processing.
     xTrain = torch.from_numpy(dTrain).long().cuda()
     yTrain = torch.from_numpy(lTrain).long().cuda()
