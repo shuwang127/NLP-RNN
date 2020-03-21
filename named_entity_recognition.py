@@ -9,16 +9,18 @@ import torch.nn as nn
 import torch.utils.data as torchdata
 import gc
 from sklearn.metrics import accuracy_score
+from conll2003.conlleval import evaluate_conll_file
 import torch
 
 # global path
 rootPath = './'
 dataPath = rootPath + '/conll2003/'
 tempPath = rootPath + '/temp/'
+outsPath = rootPath + '/outputs/'
+modsPath = rootPath + '/models/'
 # global variable
-numEpoch = 1
-perEpoch = 1
-learnRate = 0.001
+maxEpoch = 1000
+perEpoch = 5
 
 # Logger: redirect the stream on screen and to file.
 class Logger(object):
@@ -45,13 +47,13 @@ def main():
     # get the embedding.
     preWeights = GetEmbedding(wordDict)
     # demo
-    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=True, Type='RNN', bidirect=False)
-    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=True, Type='RNN', bidirect=True)
-    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=True, Type='LSTM', bidirect=False)
-    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=True, Type='LSTM', bidirect=True)
-    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=True, Type='GRU', bidirect=False)
-    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=True, Type='GRU', bidirect=True)
-    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=False, Type='LSTM', bidirect=True)
+    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, wordDict, classDict, preWeights, preTrain=True, Type='RNN', bidirect=False)
+    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, wordDict, classDict, preWeights, preTrain=True, Type='RNN', bidirect=True)
+    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, wordDict, classDict, preWeights, preTrain=True, Type='LSTM', bidirect=False)
+    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, wordDict, classDict, preWeights, preTrain=True, Type='LSTM', bidirect=True)
+    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, wordDict, classDict, preWeights, preTrain=True, Type='GRU', bidirect=False)
+    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, wordDict, classDict, preWeights, preTrain=True, Type='GRU', bidirect=True)
+    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, wordDict, classDict, preWeights, preTrain=False, Type='LSTM', bidirect=True, learnRate=0.0001)
     return
 
 def ReadData():
@@ -235,7 +237,7 @@ class RecurrentNeuralNetwork(nn.Module):
         yhats = self.fc(out)
         return yhats
 
-def DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=True, Type='RNN', bidirect=False, hiddenSize=256, batchsize=256):
+def DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, wordDict, classDict, preWeights, preTrain=True, Type='RNN', bidirect=False, hiddenSize=256, batchsize=256, learnRate=0.001):
     # tensor data processing.
     xTrain = torch.from_numpy(dTrain).long().cuda()
     yTrain = torch.from_numpy(lTrain).long().cuda()
@@ -261,6 +263,7 @@ def DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=T
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
     print('[Demo] --- RNNType: %s | HiddenNodes: %d | Bi-Direction: %s | Pre-Trained: %s ---' % (Type, hiddenSize, bidirect, preTrain))
+    print('[Para] BatchSize=%d, LearningRate=%.4f, MaxEpoch=%d, PerEpoch=%d.' % (batchsize, learnRate, maxEpoch, perEpoch))
     # optimizing with stochastic gradient descent.
     optimizer = optim.Adam(model.parameters(), lr=learnRate)
     # seting loss function as mean squared error.
@@ -271,7 +274,7 @@ def DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=T
 
     # run on each epoch.
     accList = [0]
-    for epoch in range(numEpoch):
+    for epoch in range(maxEpoch):
         # training phase.
         model.train()
         lossTrain = 0
@@ -329,7 +332,7 @@ def DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=T
 
         # output information.
         if 0 == (epoch + 1) % perEpoch:
-            print('[Epoch %03d] loss: %.3f, train acc: %.3f%%, valid acc: %.3f%%' % (epoch + 1, lossTrain, accTrain, accValid))
+            print('[Epoch %03d] loss: %.3f, train acc: %.3f%%, valid acc: %.3f%%.' % (epoch + 1, lossTrain, accTrain, accValid))
         # save the best model.
         if accList[-1] > max(accList[0:-1]):
             torch.save(model.state_dict(), tempPath + '/model.pth')
@@ -347,6 +350,7 @@ def DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=T
     testloader = torchdata.DataLoader(test, batch_size=batchsize, shuffle=False)
     # testing phase.
     model.eval()
+    words = []
     predictions = []
     labels = []
     with torch.no_grad():
@@ -356,6 +360,7 @@ def DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=T
             label = label.to(device)
             yhat = model.forward(data)  # get output
             # statistic
+            words.extend(data.contiguous().view(-1).int().tolist())
             preds = yhat.max(1)[1]
             predictions.extend(preds.int().tolist())
             labels.extend(label.int().tolist())
@@ -365,35 +370,38 @@ def DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=T
     # testing accuracy.
     padIndex = [ind for ind, lb in enumerate(labels) if lb == 0]
     for ind in sorted(padIndex, reverse=True):
+        del words[ind]
         del predictions[ind]
         del labels[ind]
     accuracy = accuracy_score(labels, predictions) * 100
-    print('[Info] Testing accuracy: %.3f%%' % (accuracy))
+    print('[Eval] Testing accuracy: %.3f%%.' % (accuracy))
 
-    '''
-    print("--- Formatting Results for conlleval.py Official Evaluation --- %s seconds ---" % (round((time.time() - start_time),2)))
-    formattedcontexts = []
-    formattedlabels = []
-    formattedpredictions = []
-    for element in labelsfull: #convert to real words and labels
-        formattedlabels.extend(labelindex[element])
-    for element in predictionsfull:
-        if element == 0:
-            element = 1 #remove stray <pad> predictions
-        formattedpredictions.extend(labelindex[element])
-    for element in contextfull:
-        formattedcontexts.extend(wordindex[element])
-    #write to file
-    fname = 'results/{}--bidir={}--hidden_size={}--pretrain={}--results.txt'.format(RNNTYPE,bidirectional,hidden_dim,pretrained_embeddings_status)
-    if os.path.exists(fname):
-        os.remove(fname)
-    f = open(fname,'w')
-    for (i,element) in enumerate(labelsfull):
-        f.write(formattedcontexts[i] + ' ' + formattedlabels[i] + ' ' + formattedpredictions[i] + '\n')
-    f.close()
-    print('--- {}--bidir={}--hidden_size={}--pretrain={}--results ---'.format(RNNTYPE,bidirectional,hidden_dim,pretrained_embeddings_status))
-    evaluate_conll_file(open(fname,'r')) #evaluate using conll script
-    '''
+    # get inverse index dictionary.
+    wordIndDict = {ind: item for ind, item in enumerate(wordDict)}
+    classIndDict = {ind: item for ind, item in enumerate(classDict)}
+    # output preparation.
+    outWords = [wordIndDict[item] for item in words]
+    outLabels = [classIndDict[item] for item in labels]
+    predictions = [(1 if 0 == item else item) for item in predictions]
+    outPredictions = [classIndDict[item] for item in predictions]
+
+    # file operation.
+    if not os.path.exists(outsPath):
+        os.mkdir(outsPath)
+    filename = 'output_{}_pre{}_bi{}_{}_{}_{}.txt'.format(Type, preTrain, bidirect, hiddenSize, batchsize, learnRate)
+    fout = open(outsPath + '/' + filename, 'w')
+    for i in range(len(outLabels)):
+        fout.write(outWords[i] + ' ' + outLabels[i] + ' ' + outPredictions[i] + '\n')
+    fout.close()
+    evaluate_conll_file(open(outsPath + '/' + filename, 'r'))
+
+    # save model.
+    if not os.path.exists(modsPath):
+        os.mkdir(modsPath)
+    filename = 'model_{}_pre{}_bi{}_{}_{}_{}.pth'.format(Type, preTrain, bidirect, hiddenSize, batchsize, learnRate)
+    torch.save(model.state_dict(), modsPath + '/' + filename)
+    print('[Info] Save the %s model in %s/%s' % (Type, modsPath, filename))
+    print('[Info] --------------------------------------------------------------------------------')
     return model
 
 # The program entrance.
