@@ -3,12 +3,7 @@ import re
 import os
 from collections import defaultdict
 from gensim import models
-import itertools
 import numpy as np
-import time
-import torch.utils.data as data_utils
-import torch
-import torch.nn.functional as F
 import torch.optim as optim
 import torch.nn as nn
 import torch.utils.data as torchdata
@@ -20,6 +15,10 @@ import torch
 rootPath = './'
 dataPath = rootPath + '/conll2003/'
 tempPath = rootPath + '/temp/'
+# global variable
+numEpoch = 1
+perEpoch = 1
+learnRate = 0.001
 
 # Logger: redirect the stream on screen and to file.
 class Logger(object):
@@ -46,8 +45,13 @@ def main():
     # get the embedding.
     preWeights = GetEmbedding(wordDict)
     # demo
-    model = RNNTrain(dTrain, lTrain, dValid, lValid, preWeights, preTrain=True, Type='RNN', bidirect=False, hiddenSize=256)
-    RNNTest(model, dTest, lTest)
+    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=True, Type='RNN', bidirect=False)
+    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=True, Type='RNN', bidirect=True)
+    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=True, Type='LSTM', bidirect=False)
+    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=True, Type='LSTM', bidirect=True)
+    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=True, Type='GRU', bidirect=False)
+    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=True, Type='GRU', bidirect=True)
+    DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=False, Type='LSTM', bidirect=True)
     return
 
 def ReadData():
@@ -231,19 +235,16 @@ class RecurrentNeuralNetwork(nn.Module):
         yhats = self.fc(out)
         return yhats
 
-def RNNTrain(dTrain, lTrain, dValid, lValid, preWeights, preTrain=True, Type='RNN', bidirect=False, hiddenSize=256):
+def DemoRNN(dTrain, lTrain, dValid, lValid, dTest, lTest, preWeights, preTrain=True, Type='RNN', bidirect=False, hiddenSize=256, batchsize=256):
     # tensor data processing.
     xTrain = torch.from_numpy(dTrain).long().cuda()
     yTrain = torch.from_numpy(lTrain).long().cuda()
     xValid = torch.from_numpy(dValid).long().cuda()
     yValid = torch.from_numpy(lValid).long().cuda()
     # batch size processing.
-    batchsize = 256
     train = torchdata.TensorDataset(xTrain, yTrain)
-    numTrain = len(train)
     trainloader = torchdata.DataLoader(train, batch_size=batchsize, shuffle=False)
     valid = torchdata.TensorDataset(xValid, yValid)
-    numValid = len(valid)
     validloader = torchdata.DataLoader(valid, batch_size=batchsize, shuffle=False)
 
     # get training weights
@@ -261,7 +262,7 @@ def RNNTrain(dTrain, lTrain, dValid, lValid, preWeights, preTrain=True, Type='RN
     model.to(device)
     print('[Demo] --- RNNType: %s | HiddenNodes: %d | Bi-Direction: %s | Pre-Trained: %s ---' % (Type, hiddenSize, bidirect, preTrain))
     # optimizing with stochastic gradient descent.
-    optimizer = optim.Adam(model.parameters(), lr=0.0001)
+    optimizer = optim.Adam(model.parameters(), lr=learnRate)
     # seting loss function as mean squared error.
     criterion = nn.CrossEntropyLoss(weight=lbWeights)
     # memory
@@ -270,7 +271,7 @@ def RNNTrain(dTrain, lTrain, dValid, lValid, preWeights, preTrain=True, Type='RN
 
     # run on each epoch.
     accList = [0]
-    for epoch in range(100):
+    for epoch in range(numEpoch):
         # training phase.
         model.train()
         lossTrain = 0
@@ -290,6 +291,9 @@ def RNNTrain(dTrain, lTrain, dValid, lValid, preWeights, preTrain=True, Type='RN
             preds = yhat.max(1)[1]
             predictions.extend(preds.int().tolist())
             labels.extend(label.int().tolist())
+            torch.cuda.empty_cache()
+        gc.collect()
+        torch.cuda.empty_cache()
         lossTrain /= len(lbTrain)
         # train accuracy.
         padIndex = [ind for ind, lb in enumerate(labels) if lb == 0]
@@ -312,6 +316,9 @@ def RNNTrain(dTrain, lTrain, dValid, lValid, preWeights, preTrain=True, Type='RN
                 preds = yhat.max(1)[1]
                 predictions.extend(preds.int().tolist())
                 labels.extend(label.int().tolist())
+                torch.cuda.empty_cache()
+        gc.collect()
+        torch.cuda.empty_cache()
         # valid accuracy.
         padIndex = [ind for ind, lb in enumerate(labels) if lb == 0]
         for ind in sorted(padIndex, reverse=True):
@@ -321,7 +328,7 @@ def RNNTrain(dTrain, lTrain, dValid, lValid, preWeights, preTrain=True, Type='RN
         accList.append(accValid)
 
         # output information.
-        if 0 == (epoch + 1) % 2:
+        if 0 == (epoch + 1) % perEpoch:
             print('[Epoch %03d] loss: %.3f, train acc: %.3f%%, valid acc: %.3f%%' % (epoch + 1, lossTrain, accTrain, accValid))
         # save the best model.
         if accList[-1] > max(accList[0:-1]):
@@ -333,42 +340,61 @@ def RNNTrain(dTrain, lTrain, dValid, lValid, preWeights, preTrain=True, Type='RN
     # load best model.
     model.load_state_dict(torch.load(tempPath + '/model.pth'))
 
-    return model
-
-def RNNTest(model, dTest, lTest):
-    # get predictions for testing samples with model parameters.
-    def GetPredictions(model, dTest):
-        xTest = torch.from_numpy(dTest).long().cuda()
-        yhat = model.forward(xTest)
-        preds = yhat.max(1)[1]
-        predictions = preds.int().tolist()
-        return predictions
-
-    # evaluate the predictions with gold labels, and get accuracy and confusion matrix.
-    def Evaluation(predictions, lTest):
-        # sparse the corresponding label.
-        labelTest = [item for sublist in lTest.tolist() for item in sublist]
-        D = len(labelTest)
-        cls = 10
-        # get confusion matrix.
-        confusion = np.zeros((cls, cls), dtype=int)
-        for ind in range(D):
-            nRow = int(predictions[ind])
-            nCol = int(labelTest[ind])
-            confusion[nRow][nCol] += 1
-        # get accuracy.
-        padIndex = [ind for ind, lb in enumerate(labelTest) if lb == 0]
-        for ind in sorted(padIndex, reverse=True):
-            del predictions[ind]
-            del labelTest[ind]
-        accuracy = accuracy_score(labelTest, predictions) * 100
-        return accuracy, confusion
-
-    # get predictions for testing samples.
-    predictions = GetPredictions(model, dTest)
-    accuracy, confusion = Evaluation(predictions, lTest)
+    # test period
+    xTest = torch.from_numpy(dTest).long().cuda()
+    yTest = torch.from_numpy(lTest).long().cuda()
+    test = torchdata.TensorDataset(xTest, yTest)
+    testloader = torchdata.DataLoader(test, batch_size=batchsize, shuffle=False)
+    # testing phase.
+    model.eval()
+    predictions = []
+    labels = []
+    with torch.no_grad():
+        for iter, (data, label) in enumerate(testloader):
+            data = data.to(device)
+            label = label.contiguous().view(-1)
+            label = label.to(device)
+            yhat = model.forward(data)  # get output
+            # statistic
+            preds = yhat.max(1)[1]
+            predictions.extend(preds.int().tolist())
+            labels.extend(label.int().tolist())
+            torch.cuda.empty_cache()
+    gc.collect()
+    torch.cuda.empty_cache()
+    # testing accuracy.
+    padIndex = [ind for ind, lb in enumerate(labels) if lb == 0]
+    for ind in sorted(padIndex, reverse=True):
+        del predictions[ind]
+        del labels[ind]
+    accuracy = accuracy_score(labels, predictions) * 100
     print('[Info] Testing accuracy: %.3f%%' % (accuracy))
-    return accuracy, confusion
+
+    '''
+    print("--- Formatting Results for conlleval.py Official Evaluation --- %s seconds ---" % (round((time.time() - start_time),2)))
+    formattedcontexts = []
+    formattedlabels = []
+    formattedpredictions = []
+    for element in labelsfull: #convert to real words and labels
+        formattedlabels.extend(labelindex[element])
+    for element in predictionsfull:
+        if element == 0:
+            element = 1 #remove stray <pad> predictions
+        formattedpredictions.extend(labelindex[element])
+    for element in contextfull:
+        formattedcontexts.extend(wordindex[element])
+    #write to file
+    fname = 'results/{}--bidir={}--hidden_size={}--pretrain={}--results.txt'.format(RNNTYPE,bidirectional,hidden_dim,pretrained_embeddings_status)
+    if os.path.exists(fname):
+        os.remove(fname)
+    f = open(fname,'w')
+    for (i,element) in enumerate(labelsfull):
+        f.write(formattedcontexts[i] + ' ' + formattedlabels[i] + ' ' + formattedpredictions[i] + '\n')
+    f.close()
+    print('--- {}--bidir={}--hidden_size={}--pretrain={}--results ---'.format(RNNTYPE,bidirectional,hidden_dim,pretrained_embeddings_status))
+    evaluate_conll_file(open(fname,'r')) #evaluate using conll script
+    '''
+    return model
 
 # The program entrance.
 if __name__ == "__main__":
